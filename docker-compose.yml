@@ -1,0 +1,32 @@
+services:
+  data-handler:
+    build: { context: ., dockerfile: Dockerfile }
+    command: uvicorn services.data_handler.main:app --host 0.0.0.0 --port 8001
+    environment: { DB_PATH: /data/operational_data.db }
+    volumes: ["./data:/data"]
+    ports: ["8001:8001"]
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.19.0
+    command: mlflow server --host 0.0.0.0 --port 5000 --backend-store-uri sqlite:///mlflow.db --default-artifact-root /mlartifacts
+    volumes: ["./mlflow:/mlartifacts"]
+    ports: ["5002:5000"]
+  ml-operate:
+    build: { context: ., dockerfile: Dockerfile }
+    command: uvicorn services.ml_operate.main:app --host 0.0.0.0 --port 8002
+    environment: { DATA_URL: http://data-handler:8001, MODEL_DIR: /models }
+    volumes: ["./models:/models"]
+    depends_on: [data-handler]
+    ports: ["8002:8002"]
+  ml-maintenance:
+    build: { context: ., dockerfile: Dockerfile }
+    command: uvicorn services.ml_maintenance.main:app --host 0.0.0.0 --port 8003
+    environment: { DATA_URL: http://data-handler:8001, MODEL_DIR: /models, MLFLOW_TRACKING_URI: http://mlflow:5000 }
+    volumes: ["./models:/models"]
+    depends_on: [data-handler, mlflow]
+    ports: ["8003:8003"]
+  api-gateway:
+    build: { context: ., dockerfile: Dockerfile }
+    command: uvicorn services.api_gateway.main:app --host 0.0.0.0 --port 8000
+    environment: { DATA_URL: http://data-handler:8001, OPERATE_URL: http://ml-operate:8002, MAINT_URL: http://ml-maintenance:8003 }
+    depends_on: [data-handler, ml-operate, ml-maintenance]
+    ports: ["8000:8000"]
